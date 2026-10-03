@@ -39,8 +39,14 @@ jobs:
       - name: Validate the marketplace manifest
         run: claude plugin validate --strict .
 
+      - name: Lay this build's mod API declarations
+        # the engine writes .claude-plugin/types/ when it loads the mod; the
+        # prompt itself needs no answer (there are no credentials here)
+        run: |
+          timeout 120 claude --plugin-dir "$PWD" -p 'reply with the single word ok' --max-turns 1 || true
+          test -f .claude-plugin/types/claude-code/index.d.ts
+
       - name: Type-check
-        # the mod API declarations are vendored at .claude-plugin/types/claude-code/index.d.ts
         run: tsc -p .
 
       - name: Run the tests against the engine
