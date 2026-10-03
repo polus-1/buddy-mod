@@ -16,6 +16,13 @@
       "options": ["hatch", "pick"],
       "default": "hatch"
     },
+    "seed_hash": {
+      "type": "string",
+      "title": "Seed hash",
+      "description": "How the account id is hashed into the seed. bun: Bun.hash, what the shipped Claude Code binary used, so you get the buddy it showed you. fnv1a: the FNV-1a branch the source also carried, which community reimplementations use under Node.",
+      "options": ["bun", "fnv1a"],
+      "default": "bun"
+    },
     "model": {
       "type": "string",
       "title": "Buddy model",

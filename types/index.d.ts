@@ -14,6 +14,8 @@ export type BuddyBones = {
   stats: Record<'DEBUGGING' | 'PATIENCE' | 'CHAOS' | 'WISDOM' | 'SNARK', number>
   peak: 'DEBUGGING' | 'PATIENCE' | 'CHAOS' | 'WISDOM' | 'SNARK'
   dump: 'DEBUGGING' | 'PATIENCE' | 'CHAOS' | 'WISDOM' | 'SNARK'
+  /** Seeds the hatch prompt's inspiration words. */
+  inspirationSeed: number
 }
 
 /** The stored half: written once at hatch, carried over from ~/.claude.json when found. */
@@ -47,9 +49,7 @@ declare module 'claude-code' {
     buddy: {
       /** The merged buddy; null before the first /buddy hatches it. */
       buddy: BuddySnapshot | null
-      /** The idle frame drawn now: 0, 1, 2, or -1 for the blink. */
-      frame: number
-      /** Ticks since the animation started; shiny alternates colour on it. */
+      /** Ticks since the animation started: the idle frame is IDLE_SEQUENCE[tick % 15]; shiny shimmers on it. */
       tick: number
       /** The bubble's line, cleared 10 s after it was spoken. */
       bubble: BuddyBubble | null
@@ -63,6 +63,8 @@ declare module 'claude-code' {
       spend: BuddySpend
       /** The hatch animation's step while it plays, else null. */
       hatching: number | null
+      /** The last line the buddy said this session, for the card's "last said" box. */
+      lastSaid: string | null
     }
   }
 }

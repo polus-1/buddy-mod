@@ -27,7 +27,6 @@ describe('frame shapes', () => {
     for (const species of SPECIES) {
       const sheet = SPRITES[species]
       expect(sheet.frames).toHaveLength(4)
-      expect(typeof sheet.color).toBe('string')
       for (const frame of sheet.frames) {
         frames++
         expect(frame).toHaveLength(FRAME_HEIGHT)
@@ -78,20 +77,21 @@ describe('frame shapes', () => {
   })
 
   test('the blink frame closes the eyes', async () => {
-    expect(eyeGlyphs('o', true)).toBe('- -')
+    expect(eyeGlyphs('◉', true)).toBe('- -')
     expect(eyeGlyphs('@', false)).toBe('@ @')
-    const blink = renderFrame(SPRITES.cat.frames[3], 'o', true).join('\n')
+    expect(eyeGlyphs('✦', false)).toBe('✦ ✦')
+    const blink = renderFrame(SPRITES.cat.frames[3], '◉', true).join('\n')
     expect(blink).toContain('- -')
-    expect(blink).not.toContain('o o')
+    expect(blink).not.toContain('◉ ◉')
   })
 
-  test('shiny alternates colour per tick; plain buddies keep theirs', async () => {
-    const plain = { species: 'ghost', eyes: 'o', hat: 'none', shiny: false } as const
+  test('sprites take their rarity colour; shiny shimmers gold on odd ticks', async () => {
+    const plain = { species: 'ghost', rarity: 'rare', eyes: '◉', hat: 'none', shiny: false } as const
     const shiny = { ...plain, shiny: true }
-    expect(spriteColor(plain, 0)).toBe(SPRITES.ghost.color)
-    expect(spriteColor(plain, 1)).toBe(SPRITES.ghost.color)
-    expect(spriteColor(shiny, 0)).toBe(SPRITES.ghost.color)
-    expect(spriteColor(shiny, 1)).toBe('whiteBright')
+    expect(spriteColor(plain, 0)).toBe('blue')
+    expect(spriteColor(plain, 1)).toBe('blue')
+    expect(spriteColor(shiny, 0)).toBe('blue')
+    expect(spriteColor(shiny, 1)).toBe('yellow')
   })
 
   test('the idle sequence is the original 15-step loop and hearts are 5 frames of 12 columns', async () => {
@@ -101,7 +101,7 @@ describe('frame shapes', () => {
       expect(frame).toHaveLength(FRAME_HEIGHT)
       for (const line of frame) {
         expect([...line]).toHaveLength(FRAME_WIDTH)
-        expect(/^[ ♥]*$/.test(line)).toBe(true)
+        expect(/^[ ♥·]*$/.test(line)).toBe(true)
       }
     }
   })

@@ -2,9 +2,11 @@
 //
 // Every species has 4 frames: 3 idle (0, 1, 2) and 1 blink (-1). A frame is
 // 5 lines, each at most 12 columns wide, with exactly one `{E}` token where
-// the eyes go. `{E}` is 3 columns wide and renders as 3 columns (`o o`), so a
+// the eyes go. `{E}` is 3 columns wide and renders as 3 columns (`◉ ◉`), so a
 // frame's raw width is its rendered width and nothing shifts between eye
-// styles. The blink frame renders its eyes as `- -`.
+// styles. The blink frame renders its eyes as `- -`. The art is original; the
+// grid, the eye slot, the frame indices and the 15-step idle loop are the
+// original's.
 //
 // Hats are one-line overlays composited above line 0, centred on the eye
 // slot, so a hatted sprite is 6 lines tall (as the original's was).
@@ -29,54 +31,45 @@ export type FrameIndex = 0 | 1 | 2 | -1
 export type SpriteSheet = {
   /** Idle frames 0, 1, 2 and the blink frame, in that order. */
   frames: readonly [Frame, Frame, Frame, Frame]
-  /** The species' terminal colour (a theme key or a raw colour). */
-  color: string
 }
 
-const sheet = (color: string, f0: Frame, f1: Frame, f2: Frame, blink: Frame): SpriteSheet => ({
+const sheet = (f0: Frame, f1: Frame, f2: Frame, blink: Frame): SpriteSheet => ({
   frames: [f0, f1, f2, blink],
-  color,
 })
 
 export const SPRITES: Record<Species, SpriteSheet> = {
   // ---------------------------------------------------------------- common
   duck: sheet(
-    'yellow',
     ['    __      ', '  <({E})    ', '   (    )_  ', '   (_____)  ', '    ^  ^    '],
     ['    __      ', '  <({E})    ', '   (    )__ ', '   (_____)  ', '    ^  ^    '],
     ['    __      ', '  <({E})    ', '   (    )_  ', '   (_____)  ', '     ^ ^    '],
     ['    __      ', '  <({E})    ', '   (    )_  ', '   (_____)  ', '    ^  ^    '],
   ),
   goose: sheet(
-    'white',
     ['   _        ', '  ({E})     ', '   | )      ', '   |(____   ', '  (______)  '],
     ['   _        ', '  ({E})     ', '   \\ )      ', '    |(____  ', '   (______) '],
     ['   _        ', '  ({E})     ', '   | )      ', '   |(____~  ', '  (______)  '],
     ['   _        ', '  ({E})     ', '   | )      ', '   |(____   ', '  (______)  '],
   ),
   blob: sheet(
-    'green',
     ['            ', '   .----.   ', '  ( {E}  )  ', '  (  __  )  ', "   `----'   "],
     ['            ', '    .--.    ', '  ( {E} )   ', ' (   __   ) ', " `--------' "],
     ['   .----.   ', '  ( {E}  )  ', '  (  __  )  ', '  (      )  ', "   `----'   "],
     ['            ', '   .----.   ', '  ( {E}  )  ', '  (  __  )  ', "   `----'   "],
   ),
   cat: sheet(
-    'magenta',
     ['  /\\_/\\     ', ' ( {E} )    ', ' (  w  )_   ', '  (   )  )  ', '  (_)(_)_/  '],
     ['  /\\_/\\     ', ' ( {E} )    ', ' (  w  )_   ', '  (   )  )  ', "  (_)(_)-'  "],
     ['  /\\_/\\     ', ' ( {E} )    ', ' (  w  )_   ', '  (   ) (   ', '  (_)(_)_\\  '],
     ['  /\\_/\\     ', ' ( {E} )    ', ' (  w  )_   ', '  (   )  )  ', '  (_)(_)_/  '],
   ),
   dragon: sheet(
-    'red',
     ['   /\\  /\\   ', '  ( {E}  )> ', '   \\  ~~ /  ', '   /|___|\\  ', '  ^^    ^^  '],
     ['   /\\  /\\   ', '  ( {E}  )>~', '   \\  ~~ /  ', '   /|___|\\  ', '  ^^    ^^  '],
     ['   /\\  /\\   ', '  ( {E}  )> ', '   \\  ~~ /  ', '  //|___|\\\\ ', '  ^^    ^^  '],
     ['   /\\  /\\   ', '  ( {E}  )> ', '   \\  ~~ /  ', '   /|___|\\  ', '  ^^    ^^  '],
   ),
   octopus: sheet(
-    'magenta',
     ['    .---.   ', '   ( {E} )  ', '   ( ___ )  ', '   /|/|\\|\\  ', "  ' ( ) ) ` "],
     ['    .---.   ', '   ( {E} )  ', '   ( ___ )  ', '   \\|\\|/|/  ', '  , ( ) ( , '],
     ['    .---.   ', '   ( {E} )  ', '   ( ___ )  ', '   /|/|\\|\\  ', "  ) ) ( ) ` "],
@@ -84,28 +77,24 @@ export const SPRITES: Record<Species, SpriteSheet> = {
   ),
   // -------------------------------------------------------------- uncommon
   owl: sheet(
-    'yellow',
     ['   /\\ /\\    ', '  ({E} )    ', '  (( v ))   ', '  (|||||)   ', '   "   "    '],
     ['   /\\ /\\    ', '  ({E} )    ', '  (  v  )   ', '  (|||||)   ', '   "   "    '],
     ['   /\\ /\\    ', '  ({E} )    ', '  (( v ))   ', '  (|||||)   ', '    " "     '],
     ['   /\\ /\\    ', '  ({E} )    ', '  (( v ))   ', '  (|||||)   ', '   "   "    '],
   ),
   penguin: sheet(
-    'cyan',
     ['    .--.    ', '   ({E} )   ', '   /( v )\\  ', '  | (   ) | ', '   ^"--"^   '],
     ['    .--.    ', '   ({E} )   ', '   /( v )\\  ', '  / (   ) \\ ', '   ^"--"^   '],
     ['    .--.    ', '   ({E} )   ', '   /( v )\\  ', '  | (   ) | ', '    ^"-"^   '],
     ['    .--.    ', '   ({E} )   ', '   /( v )\\  ', '  | (   ) | ', '   ^"--"^   '],
   ),
   turtle: sheet(
-    'green',
     ['    _____   ', '   /_____\\  ', '  /_______\\_', ' ({E} )_|_|)', '   U     U  '],
     ['    _____   ', '   /_____\\  ', '  /_______\\_', ' ({E} )_|_|)', '    U   U   '],
     ['    _____   ', '   /_____\\  ', '  /_______\\_', '  ({E})_|_|)', '   U     U  '],
     ['    _____   ', '   /_____\\  ', '  /_______\\_', ' ({E} )_|_|)', '   U     U  '],
   ),
   snail: sheet(
-    'cyan',
     ['  {E}  .--. ', '  \\/  ( @) )', "   \\   `--' ", '   /______  ', '  (_______) '],
     ['  {E} .--.  ', '  \\/ ( @) ) ', "   \\  `--'  ", '   /______  ', '  (_______) '],
     ['  {E}  .--. ', '  \\/  ( @) )', "   \\   `--' ", '    /______ ', '   (_______)'],
@@ -113,21 +102,18 @@ export const SPRITES: Record<Species, SpriteSheet> = {
   ),
   // ------------------------------------------------------------------ rare
   ghost: sheet(
-    'white',
     ['   .----.   ', '  / {E}  \\  ', '  |  __  |  ', '  |      |  ', "  '-^--^-'  "],
     ['   .----.   ', '  / {E}  \\  ', '  |  __  |  ', '  |      |  ', "  '^--^-^'  "],
     ['   .----.   ', '  / {E}  \\  ', '  |  __  |  ', '  |      |  ', "  '-^^--^'  "],
     ['   .----.   ', '  / {E}  \\  ', '  |  __  |  ', '  |      |  ', "  '-^--^-'  "],
   ),
   axolotl: sheet(
-    'magenta',
     [' ~( .--. )~ ', '   ({E}  )  ', '   ( ~~  )__', '   (_______)', '    "   "   '],
     [' ~( .--. )~ ', '  ~({E}  )~ ', '   ( ~~  )_ ', '   (_______)', '    "   "   '],
     [' ~( .--. )~ ', '   ({E}  )  ', '   ( ~~  )__', '   (______~)', '     " "    '],
     [' ~( .--. )~ ', '   ({E}  )  ', '   ( ~~  )__', '   (_______)', '    "   "   '],
   ),
   capybara: sheet(
-    'yellow',
     ['   .-----.  ', '  ( {E}   )_', '  (  __   |)', '  (______|_/', '   ||   ||  '],
     ['   .-----.  ', '  ( {E}   )_', '  (  __   |)', '  (______|_/', '   ||  ||   '],
     ['   .-----.  ', '  ( {E}   )_', '  (  ..   |)', '  (______|_/', '   ||   ||  '],
@@ -135,21 +121,18 @@ export const SPRITES: Record<Species, SpriteSheet> = {
   ),
   // ------------------------------------------------------------------ epic
   cactus: sheet(
-    'green',
     ['    _|_     ', '   | {E} |  ', '  _|  __ |_ ', ' |_|     |_|', '   |_____|  '],
     ['    _|_     ', '   | {E} |  ', ' _ |  __ | _', ' |_|     |_|', '   |_____|  '],
     ['    _*_     ', '   | {E} |  ', '  _|  __ |_ ', ' |_|     |_|', '   |_____|  '],
     ['    _|_     ', '   | {E} |  ', '  _|  __ |_ ', ' |_|     |_|', '   |_____|  '],
   ),
   robot: sheet(
-    'cyan',
     ['    _[]_    ', '  .------.  ', '  | {E}  |  ', '  |  ==  |o ', "  '------'  "],
     ['    _()_    ', '  .------.  ', '  | {E}  |  ', '  |  ==  |o ', "  '------'  "],
     ['    _[]_    ', '  .------.  ', '  | {E}  |  ', '  |  --  |o ', "  '------'  "],
     ['    _[]_    ', '  .------.  ', '  | {E}  |  ', '  |  ==  |o ', "  '------'  "],
   ),
   rabbit: sheet(
-    'white',
     ['   (\\ /)    ', '   ( {E})   ', '   ( .. )   ', '  (( __ ))  ', '   (_)(_)   '],
     ['   (\\_/)    ', '   ( {E})   ', '   ( .. )   ', '  (( __ ))  ', '   (_)(_)   '],
     ['   (\\ \\)    ', '   ( {E})   ', '   ( .. )   ', '  (( __ ))  ', '   (_)(_)   '],
@@ -157,14 +140,12 @@ export const SPRITES: Record<Species, SpriteSheet> = {
   ),
   // ------------------------------------------------------------- legendary
   mushroom: sheet(
-    'red',
     ['   .-""""-. ', '  (________)', '    |{E} |  ', '    | __ |  ', '    |____|  '],
     ['  _.-""""-._', '  (________)', '    |{E} |  ', '    | __ |  ', '    |____|  '],
     ['   .-"..."-.', '  (________)', '    |{E} |  ', '    | __ |  ', '    |____|  '],
     ['   .-""""-. ', '  (________)', '    |{E} |  ', '    | __ |  ', '    |____|  '],
   ),
   chonk: sheet(
-    'yellow',
     ['  /\\_____/\\ ', ' (  {E}   ) ', ' (   ww   ) ', ' (        ) ', '  "-------" '],
     ['  /\\_____/\\ ', ' (  {E}   ) ', ' (   ww   ) ', ' (        ) ', '  "------"~ '],
     ['  /\\_____/\\ ', ' (  {E}   ) ', ' (   ww   ) ', '(          )', ' "--------" '],
@@ -175,14 +156,15 @@ export const SPRITES: Record<Species, SpriteSheet> = {
 /** One-line hat overlays, each centred on the eye slot when composited. */
 export const HAT_ROWS: Record<Exclude<Hat, 'none'>, string> = {
   crown: '\\^^^/',
-  'top hat': '_|=|_',
-  'propeller cap': '-=+=-',
+  tophat: '_|=|_',
+  propeller: '-=+=-',
   halo: '.-o-.',
-  'wizard hat': '_/^\\_',
+  wizard: '_/^\\_',
   beanie: '(===)',
-  'tiny duck': '<(o)>',
+  tinyduck: '<(o)>',
 }
 
+/** Rarity colours, as the original mapped them: grey, green, blue, purple, gold. */
 export const RARITY_COLOR: Record<Rarity, string> = {
   common: 'gray',
   uncommon: 'green',
@@ -191,7 +173,8 @@ export const RARITY_COLOR: Record<Rarity, string> = {
   legendary: 'yellow',
 }
 
-export const SHINY_COLOR = 'whiteBright'
+/** Shiny buddies draw their name and badge in gold, as the original did. */
+export const SHINY_COLOR = 'yellow'
 
 export function frameAt(sheet: SpriteSheet, index: FrameIndex): Frame {
   return index === -1 ? sheet.frames[3] : sheet.frames[index]
@@ -243,18 +226,21 @@ export function renderSprite(look: SpriteLook, index: FrameIndex): string[] {
   return hat === null ? body : [hat, ...body]
 }
 
-/** Shiny buddies alternate between their colour and bright white per frame. */
-export function spriteColor(look: SpriteLook, tick: number): string {
-  const base = SPRITES[look.species].color
+/**
+ * The sprite's colour: its rarity's, as the original drew it. A shiny buddy
+ * shimmers between gold and its rarity colour, one tick on, one tick off.
+ */
+export function spriteColor(look: SpriteLook & { rarity: Rarity }, tick: number): string {
+  const base = RARITY_COLOR[look.rarity]
   return look.shiny && tick % 2 === 1 ? SHINY_COLOR : base
 }
 
-/** Five frames of hearts rising over the sprite column, one row per tick. */
+/** Five frames of hearts rising over the sprite column, one row per tick, fading to dots. */
 export const HEART_FRAMES: readonly (readonly string[])[] = [
   ['            ', '            ', '            ', '            ', '     ♥      '],
   ['            ', '            ', '            ', '   ♥   ♥    ', '     ♥      '],
   ['            ', '            ', '  ♥    ♥    ', '   ♥   ♥    ', '            '],
   ['            ', ' ♥   ♥   ♥  ', '  ♥    ♥    ', '            ', '            '],
-  ['♥   ♥   ♥  ♥', ' ♥   ♥   ♥  ', '            ', '            ', '            '],
+  ['·   ·   ·  ·', ' ·   ·   ·  ', '            ', '            ', '            '],
 ]
 export const HEART_TICKS = HEART_FRAMES.length

@@ -1,38 +1,40 @@
 // bones.ts: the deterministic half of a buddy. Pure: no `$`, no I/O.
 //
-// A buddy's *bones* (species, rarity, shiny, eyes, hat, stats) are a pure
-// function of the account id, recomputed every session and never stored:
-//   FNV-1a(accountUuid + SALT) seeds Mulberry32, and the rolls are drawn in a
-//   fixed order: rarity, species, shiny, eyes, hat, stats (peak, dump, scatter).
-// Keep that order: changing it changes everyone's buddy.
+// A buddy's *bones* (rarity, species, eyes, hat, shiny, stats) are a pure
+// function of the account id, recomputed every session and never stored. The
+// pipeline is the original's, as the community forensics of the shipped
+// binary record it (BonziClaude, BUDDY_SYSTEM_FORENSICS.md; save-buddy):
+//
+//   seed  = hash(accountUuid + "friend-2026-401")        32-bit
+//   rand  = mulberry32(seed)
+//   rolls = rarity, species (all 18), eye (6), hat (8, Common gets none and
+//           rolls nothing), shiny (1%), stats (peak, dump, then each value in
+//           stat order), inspirationSeed
+//
+// The hash: the shipped binary ran under Bun and took `Bun.hash(seed) &
+// 0xffffffff` (wyhash, seed 0, over the UTF-8 bytes); its FNV-1a branch only
+// ran outside Bun. Both are here; `seed_hash` in the plugin's userConfig picks
+// one, `bun` by default so a buddy matches what Claude Code itself showed.
+// Keep every order and range below as it is: a change changes everyone's buddy.
 
 export const SALT = 'friend-2026-401'
+
+export type SeedHash = 'bun' | 'fnv1a'
 
 export const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'] as const
 export type Rarity = (typeof RARITIES)[number]
 
-export const SPECIES_BY_RARITY = {
-  common: ['duck', 'goose', 'blob', 'cat', 'dragon', 'octopus'],
-  uncommon: ['owl', 'penguin', 'turtle', 'snail'],
-  rare: ['ghost', 'axolotl', 'capybara'],
-  epic: ['cactus', 'robot', 'rabbit'],
-  legendary: ['mushroom', 'chonk'],
-} as const satisfies Record<Rarity, readonly string[]>
-
-export type Species = (typeof SPECIES_BY_RARITY)[Rarity][number]
-
-export const SPECIES: readonly Species[] = RARITIES.flatMap(r => [...SPECIES_BY_RARITY[r]])
-
-/** Cumulative rarity odds on one `rand()`: 60 / 25 / 10 / 4 / 1. */
-export const RARITY_ODDS: Record<Rarity, number> = {
-  common: 0.6,
-  uncommon: 0.25,
-  rare: 0.1,
-  epic: 0.04,
-  legendary: 0.01,
+/** Weighted rarity odds, summing to 100: 60 / 25 / 10 / 4 / 1. */
+export const RARITY_WEIGHTS: Record<Rarity, number> = {
+  common: 60,
+  uncommon: 25,
+  rare: 10,
+  epic: 4,
+  legendary: 1,
 }
 
-export const STAT_FLOOR: Record<Rarity, number> = {
+/** The base stat value per rarity (the original's `Ob4`). */
+export const BASE_STAT: Record<Rarity, number> = {
   common: 5,
   uncommon: 15,
   rare: 25,
@@ -48,55 +50,180 @@ export const STARS: Record<Rarity, number> = {
   legendary: 5,
 }
 
-export const EYES = ['·', '*', 'x', 'o', '@', '^'] as const
+/** The 18 species, in the original's index order; every rarity rolls from all of them. */
+export const SPECIES = [
+  'duck',
+  'goose',
+  'blob',
+  'cat',
+  'dragon',
+  'octopus',
+  'owl',
+  'penguin',
+  'turtle',
+  'snail',
+  'ghost',
+  'axolotl',
+  'capybara',
+  'cactus',
+  'robot',
+  'rabbit',
+  'mushroom',
+  'chonk',
+] as const
+export type Species = (typeof SPECIES)[number]
+
+/** The six eye glyphs, in the original's index order. */
+export const EYES = ['·', '✦', '×', '◉', '@', '°'] as const
 export type Eyes = (typeof EYES)[number]
 export const EYE_NAMES: Record<Eyes, string> = {
   '·': 'dot',
-  '*': 'star',
-  x: 'closed',
-  o: 'round',
+  '✦': 'star',
+  '×': 'cross',
+  '◉': 'fisheye',
   '@': 'spiral',
-  '^': 'minimalist',
+  '°': 'degree',
+}
+/** Other spellings `/buddy pick` accepts for an eye. */
+const EYE_ALIASES: Record<string, Eyes> = {
+  dot: '·',
+  star: '✦',
+  cross: '×',
+  x: '×',
+  closed: '×',
+  fisheye: '◉',
+  round: '◉',
+  o: '◉',
+  spiral: '@',
+  at: '@',
+  degree: '°',
+  minimalist: '°',
 }
 
-export const HATS = [
-  'none',
-  'crown',
-  'top hat',
-  'propeller cap',
-  'halo',
-  'wizard hat',
-  'beanie',
-  'tiny duck',
-] as const
+/** The eight hats, in the original's index order; Common always gets `none`. */
+export const HATS = ['none', 'crown', 'tophat', 'propeller', 'halo', 'wizard', 'beanie', 'tinyduck'] as const
 export type Hat = (typeof HATS)[number]
+export const HAT_LABELS: Record<Hat, string> = {
+  none: 'none',
+  crown: 'crown',
+  tophat: 'top hat',
+  propeller: 'propeller cap',
+  halo: 'halo',
+  wizard: 'wizard hat',
+  beanie: 'beanie',
+  tinyduck: 'tiny duck',
+}
 
 export const STAT_NAMES = ['DEBUGGING', 'PATIENCE', 'CHAOS', 'WISDOM', 'SNARK'] as const
 export type StatName = (typeof STAT_NAMES)[number]
 export type Stats = Record<StatName, number>
 
 export type Bones = {
-  species: Species
   rarity: Rarity
-  shiny: boolean
+  species: Species
   eyes: Eyes
   hat: Hat
+  shiny: boolean
   stats: Stats
-  /** The stat rolled as the peak (`floor + 50 + rand`, capped at 100). */
+  /** The stat rolled high (`base + 50 + rand(0..29)`, capped at 100). */
   peak: StatName
-  /** The stat rolled as the dump (`floor - 10 + rand`, floored at 1). */
+  /** The stat rolled low (`base - 10 + rand(0..14)`, floored at 1). */
   dump: StatName
+  /** Seeds the four inspiration words of the hatch prompt. */
+  inspirationSeed: number
 }
 
-/** 32-bit FNV-1a over the UTF-8 bytes of `text`. */
+// ------------------------------------------------------------------ hashing
+
+/** 32-bit FNV-1a over UTF-16 code units, as the original's JavaScript branch did. */
 export function fnv1a(text: string): number {
-  const bytes = new TextEncoder().encode(text)
   let hash = 0x811c9dc5
-  for (const byte of bytes) {
-    hash ^= byte
-    hash = Math.imul(hash, 0x01000193) >>> 0
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
   }
   return hash >>> 0
+}
+
+const MASK64 = (1n << 64n) - 1n
+const WY0 = 0xa0761d6478bd642fn
+const WY1 = 0xe7037ed1a0b428dbn
+const WY2 = 0x8ebc6af09c88c6e3n
+const WY3 = 0x589965cc75374cc3n
+
+function mum(a: bigint, b: bigint): [bigint, bigint] {
+  const r = a * b
+  return [r & MASK64, (r >> 64n) & MASK64]
+}
+
+function wymix(a: bigint, b: bigint): bigint {
+  const [lo, hi] = mum(a, b)
+  return lo ^ hi
+}
+
+function read8(b: Uint8Array, p: number): bigint {
+  let v = 0n
+  for (let i = 7; i >= 0; i--) v = (v << 8n) | BigInt(b[p + i] ?? 0)
+  return v
+}
+
+function read4(b: Uint8Array, p: number): bigint {
+  return BigInt(((b[p] ?? 0) | ((b[p + 1] ?? 0) << 8) | ((b[p + 2] ?? 0) << 16) | ((b[p + 3] ?? 0) << 24)) >>> 0)
+}
+
+function read3(b: Uint8Array, p: number, k: number): bigint {
+  return (BigInt(b[p] ?? 0) << 16n) | (BigInt(b[p + (k >> 1)] ?? 0) << 8n) | BigInt(b[p + k - 1] ?? 0)
+}
+
+/** wyhash (final version 4, the default secret), what `Bun.hash` computes. */
+export function wyhash(bytes: Uint8Array, seed = 0n): bigint {
+  const len = bytes.length
+  seed ^= wymix(seed ^ WY0, WY1)
+  let a: bigint
+  let b: bigint
+  if (len <= 16) {
+    if (len >= 4) {
+      a = (read4(bytes, 0) << 32n) | read4(bytes, (len >> 3) << 2)
+      b = (read4(bytes, len - 4) << 32n) | read4(bytes, len - 4 - ((len >> 3) << 2))
+    } else if (len > 0) {
+      a = read3(bytes, 0, len)
+      b = 0n
+    } else {
+      a = 0n
+      b = 0n
+    }
+  } else {
+    let i = len
+    let p = 0
+    if (i > 48) {
+      let see1 = seed
+      let see2 = seed
+      do {
+        seed = wymix(read8(bytes, p) ^ WY1, read8(bytes, p + 8) ^ seed)
+        see1 = wymix(read8(bytes, p + 16) ^ WY2, read8(bytes, p + 24) ^ see1)
+        see2 = wymix(read8(bytes, p + 32) ^ WY3, read8(bytes, p + 40) ^ see2)
+        p += 48
+        i -= 48
+      } while (i > 48)
+      seed ^= see1 ^ see2
+    }
+    while (i > 16) {
+      seed = wymix(read8(bytes, p) ^ WY1, read8(bytes, p + 8) ^ seed)
+      i -= 16
+      p += 16
+    }
+    a = read8(bytes, len - 16)
+    b = read8(bytes, len - 8)
+  }
+  a ^= WY1
+  b ^= seed
+  const [lo, hi] = mum(a, b)
+  return wymix(lo ^ WY0 ^ BigInt(len), hi ^ WY1)
+}
+
+/** `Number(BigInt(Bun.hash(text)) & 0xffffffffn)`: the shipped binary's seed hash. */
+export function bunHash32(text: string): number {
+  return Number(wyhash(new TextEncoder().encode(text)) & 0xffffffffn)
 }
 
 /** Mulberry32: a tiny 32-bit PRNG; `rand()` is uniform on [0, 1). */
@@ -110,23 +237,12 @@ export function mulberry32(seed: number): () => number {
   }
 }
 
-export function seedFor(accountUuid: string): number {
-  return fnv1a(accountUuid + SALT)
+export function seedFor(accountUuid: string, hash: SeedHash = 'bun'): number {
+  const text = accountUuid + SALT
+  return hash === 'fnv1a' ? fnv1a(text) : bunHash32(text)
 }
 
-export function rarityFor(species: Species): Rarity {
-  for (const rarity of RARITIES) {
-    if ((SPECIES_BY_RARITY[rarity] as readonly string[]).includes(species)) return rarity
-  }
-  return 'common'
-}
-
-/** Hats a buddy of this rarity may wear: Common never, tiny duck Legendary-only. */
-export function hatsFor(rarity: Rarity): readonly Hat[] {
-  if (rarity === 'common') return ['none']
-  if (rarity === 'legendary') return HATS
-  return HATS.filter(h => h !== 'tiny duck')
-}
+// -------------------------------------------------------------------- rolls
 
 type Rand = () => number
 
@@ -136,50 +252,57 @@ function pick<T>(rand: Rand, list: readonly T[]): T {
   return item
 }
 
+/** Weighted draw: subtract each weight in rarity order until the draw goes negative. */
 function rollRarity(rand: Rand): Rarity {
-  const r = rand()
-  let edge = 0
+  const total = RARITIES.reduce((sum, r) => sum + RARITY_WEIGHTS[r], 0)
+  let remaining = rand() * total
   for (const rarity of RARITIES) {
-    edge += RARITY_ODDS[rarity]
-    if (r < edge) return rarity
+    remaining -= RARITY_WEIGHTS[rarity]
+    if (remaining < 0) return rarity
   }
-  return 'legendary'
+  return 'common'
+}
+
+/** Hats a buddy of this rarity may wear: Common never; every other rarity any of the eight. */
+export function hatsFor(rarity: Rarity): readonly Hat[] {
+  return rarity === 'common' ? ['none'] : HATS
 }
 
 /**
- * Five stats on 1-100. One peak (`floor + 50 + rand(0..49)`, capped at 100),
- * one dump (`floor - 10 + rand(0..29)`, floored at 1), three scatter
- * (`floor + rand(0..40)`). Rolls: peak index, dump index, then each stat's
- * value in STAT_NAMES order.
+ * Five stats on 1-100: a peak (`base + 50 + rand(0..29)`, capped at 100), a
+ * dump (`base - 10 + rand(0..14)`, floored at 1, re-rolled while it lands on
+ * the peak) and three others (`base + rand(0..39)`), values in stat order.
  */
 function rollStats(rand: Rand, rarity: Rarity): Pick<Bones, 'stats' | 'peak' | 'dump'> {
-  const floor = STAT_FLOOR[rarity]
-  const peakIdx = Math.floor(rand() * STAT_NAMES.length)
-  let dumpIdx = Math.floor(rand() * (STAT_NAMES.length - 1))
-  if (dumpIdx >= peakIdx) dumpIdx += 1
+  const base = BASE_STAT[rarity]
+  const peak = pick(rand, STAT_NAMES)
+  let dump = pick(rand, STAT_NAMES)
+  while (dump === peak) dump = pick(rand, STAT_NAMES)
   const stats = {} as Stats
-  STAT_NAMES.forEach((name, i) => {
-    if (i === peakIdx) stats[name] = Math.min(100, floor + 50 + Math.floor(rand() * 50))
-    else if (i === dumpIdx) stats[name] = Math.max(1, floor - 10 + Math.floor(rand() * 30))
-    else stats[name] = floor + Math.floor(rand() * 41)
-  })
-  return { stats, peak: STAT_NAMES[peakIdx] as StatName, dump: STAT_NAMES[dumpIdx] as StatName }
+  for (const name of STAT_NAMES) {
+    if (name === peak) stats[name] = Math.min(100, base + 50 + Math.floor(rand() * 30))
+    else if (name === dump) stats[name] = Math.max(1, base - 10 + Math.floor(rand() * 15))
+    else stats[name] = base + Math.floor(rand() * 40)
+  }
+  return { stats, peak, dump }
 }
 
-/** Bones from a seed, rolls in the canonical order. */
+/** Bones from a seed, rolls in the original order. */
 export function bonesFromSeed(seed: number): Bones {
   const rand = mulberry32(seed)
   const rarity = rollRarity(rand)
-  const species = pick(rand, SPECIES_BY_RARITY[rarity])
-  const shiny = rand() < 0.01
+  const species = pick(rand, SPECIES)
   const eyes = pick(rand, EYES)
-  const hat = pick(rand, hatsFor(rarity))
-  return { species, rarity, shiny, eyes, hat, ...rollStats(rand, rarity) }
+  const hat: Hat = rarity === 'common' ? 'none' : pick(rand, HATS)
+  const shiny = rand() < 0.01
+  const rolled = rollStats(rand, rarity)
+  const inspirationSeed = Math.floor(rand() * 1e9)
+  return { rarity, species, eyes, hat, shiny, ...rolled, inspirationSeed }
 }
 
 /** `hatch` mode: the buddy an account id hatches. */
-export function hatchBones(accountUuid: string): Bones {
-  return bonesFromSeed(seedFor(accountUuid))
+export function hatchBones(accountUuid: string, hash: SeedHash = 'bun'): Bones {
+  return bonesFromSeed(seedFor(accountUuid, hash))
 }
 
 export type Pick_ = {
@@ -191,26 +314,39 @@ export type Pick_ = {
 }
 
 /**
- * `pick` mode: bones set by hand. Anything not given is rolled from the
- * species (deterministically, so the same pick always looks the same).
+ * `pick` mode: bones set by hand. Every roll is still made, from a seed
+ * derived from the species, and the given fields override the rolled ones,
+ * so the same species always rolls the same stats whatever else is given.
+ * A Common buddy wears no hat whatever was asked.
  */
 export function pickBones(picked: Pick_): Bones {
   const rand = mulberry32(fnv1a('pick:' + picked.species + SALT))
-  const rarity = picked.rarity ?? rarityFor(picked.species)
-  const shiny = picked.shiny ?? rand() < 0.01
-  const eyes = picked.eyes ?? pick(rand, EYES)
-  const allowed = hatsFor(rarity)
-  const hat = picked.hat !== undefined && allowed.includes(picked.hat) ? picked.hat : pick(rand, allowed)
-  return { species: picked.species, rarity, shiny, eyes, hat, ...rollStats(rand, rarity) }
+  const rarity = picked.rarity ?? rollRarity(rand)
+  if (picked.rarity !== undefined) rand()
+  const rolledEyes = pick(rand, EYES)
+  const rolledHat = pick(rand, HATS)
+  const rolledShiny = rand() < 0.01
+  const rolled = rollStats(rand, rarity)
+  const inspirationSeed = Math.floor(rand() * 1e9)
+  const hat: Hat = rarity === 'common' ? 'none' : (picked.hat ?? rolledHat)
+  return {
+    rarity,
+    species: picked.species,
+    eyes: picked.eyes ?? rolledEyes,
+    hat,
+    shiny: picked.shiny ?? rolledShiny,
+    ...rolled,
+    inspirationSeed,
+  }
 }
 
-const EYE_BY_NAME: Record<string, Eyes> = Object.fromEntries(
-  (Object.entries(EYE_NAMES) as [Eyes, string][]).map(([glyph, name]) => [name, glyph]),
-)
+// ------------------------------------------------------------------ parsing
 
 function normalizeHat(token: string): Hat | undefined {
   const flat = token.toLowerCase().replace(/[\s_-]+/g, '')
-  return HATS.find(h => h.replace(/\s+/g, '') === flat)
+  const byId = HATS.find(h => h === flat)
+  if (byId !== undefined) return byId
+  return (Object.keys(HAT_LABELS) as Hat[]).find(h => HAT_LABELS[h].replace(/\s+/g, '') === flat)
 }
 
 export type PickParse = { ok: true; pick: Pick_ } | { ok: false; error: string }
@@ -242,8 +378,7 @@ export function parsePick(args: string): PickParse {
       pick.shiny = true
       continue
     }
-    const eyeGlyph = EYES.find(e => e === token)
-    const eyes = eyeGlyph ?? EYE_BY_NAME[lower]
+    const eyes = EYES.find(e => e === token) ?? EYE_ALIASES[lower]
     if (eyes !== undefined) {
       pick.eyes = eyes
       continue
@@ -255,7 +390,7 @@ export function parsePick(args: string): PickParse {
     }
     return {
       ok: false,
-      error: `Unknown option "${token}". Rarity: ${RARITIES.join(', ')}. Eyes: ${Object.values(EYE_NAMES).join(', ')}. Hats: ${HATS.join(', ')}. Or "shiny".`,
+      error: `Unknown option "${token}". Rarity: ${RARITIES.join(', ')}. Eyes: ${Object.values(EYE_NAMES).join(', ')}. Hats: ${Object.values(HAT_LABELS).join(', ')}. Or "shiny".`,
     }
   }
   return { ok: true, pick }
