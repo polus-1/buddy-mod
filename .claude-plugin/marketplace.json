@@ -1,0 +1,14 @@
+{
+  "name": "buddy-mod",
+  "description": "Buddy, the terminal companion, as a Claude Code mod.",
+  "owner": { "name": "polus-1", "url": "https://github.com/polus-1" },
+  "plugins": [
+    {
+      "name": "buddy",
+      "source": ".",
+      "description": "Buddy is back: the retired /buddy terminal companion as a Claude Code mod, with new sprites and Haiku writing its lines.",
+      "category": "fun",
+      "tags": ["buddy", "companion", "pet", "mod"]
+    }
+  ]
+}

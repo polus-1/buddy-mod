@@ -1,0 +1,34 @@
+{
+  "name": "buddy",
+  "displayName": "Buddy",
+  "version": "1.0.0",
+  "description": "Buddy is back: the retired /buddy terminal companion as a Claude Code mod, with new sprites and Haiku writing its lines.",
+  "author": { "name": "polus-1" },
+  "repository": "https://github.com/polus-1/buddy-mod",
+  "license": "Apache-2.0",
+  "keywords": ["buddy", "companion", "pet", "mod", "fun"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Seed mode",
+      "description": "hatch: your buddy comes from your account id, as the original /buddy did. pick: choose it by hand with /buddy pick <species> [rarity] [eyes] [hat] [shiny].",
+      "options": ["hatch", "pick"],
+      "default": "hatch"
+    },
+    "model": {
+      "type": "string",
+      "title": "Buddy model",
+      "description": "The model that writes the buddy's lines (its name and personality, reactions, pet replies and answers when you call it by name). An alias such as haiku or a full model id. Never the session's main model.",
+      "default": "haiku"
+    },
+    "cooldown_seconds": {
+      "type": "number",
+      "title": "Reaction cooldown (seconds)",
+      "description": "Minimum time between reaction calls. The original used 30.",
+      "default": 30,
+      "min": 5,
+      "max": 600
+    }
+  }
+}
