@@ -217,10 +217,20 @@ scripts/sprites-preview.txt` renders every species with every eye and hat for re
 ## Running the tests
 
 ```sh
-claude plugin validate .claude-plugin/plugin.json   # the manifest and what the module hooks and calls
-tsc -p .                                            # type-check; needs this build's claude-code.d.ts at .claude-plugin/types/claude-code/index.d.ts (the engine lays it there when it loads the mod)
-claude plugin test .                                # every hooks/*.test.ts(x) against the engine
+claude plugin validate --strict .claude-plugin/plugin.json   # the manifest and what the module hooks and calls
+claude plugin validate --strict .                            # the marketplace manifest
+tsc -p .                                                     # type-check against the vendored API declarations
+claude plugin test .                                         # every hooks/*.test.ts(x) against the engine
+bun scripts/render-sprites.ts | diff - scripts/sprites-preview.txt   # the committed preview matches the art
 ```
+
+The same five checks run in CI (`.github/workflows/ci.yml`) on every pull
+request and push to `main`, pinned to Claude Code 2.1.288, plus a non-blocking
+run on the latest release so a change to the mod API is noticed when it lands.
+The API declarations the type-check needs are vendored at
+`.claude-plugin/types/claude-code/index.d.ts`; the engine writes the same file
+there when it loads the mod, so refresh the vendored copy from it when the
+pinned version changes.
 
 The tests cover: FNV-1a and wyhash (`Bun.hash`) against reference vectors; a fixed
 uuid gives a fixed buddy under either hash; the roll order pinned by hand; 100,000

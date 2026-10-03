@@ -1,3 +1,7 @@
-.claude-plugin/types/
+# The engine lays this build's API declarations and tooling files here when it
+# loads the mod. Only the API file is vendored (CI type-checks against it);
+# refresh it from the engine's copy when the pinned Claude Code version changes.
+.claude-plugin/types/*
+!.claude-plugin/types/claude-code/
 node_modules/
 *.zip
