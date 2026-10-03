@@ -1,0 +1,5 @@
+# The engine writes this build's API declarations and tooling files here when it
+# loads the mod (and CI regenerates them before the type-check).
+.claude-plugin/types/
+node_modules/
+*.zip

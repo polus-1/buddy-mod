@@ -1,0 +1,56 @@
+# Checks that nothing breaks between PRs: the manifest and hooks module as the
+# engine reads them, the type-check, the test suite against the engine, and
+# the sprite preview. Pinned to the Claude Code release the mod targets; a
+# second run on the latest release may fail without blocking, so a change to
+# the (early access) mod API is noticed when it lands.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    name: claude-code ${{ matrix.cli }}
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.cli == 'latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        cli: ['2.1.288', 'latest']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install Claude Code and TypeScript
+        run: |
+          npm install -g "@anthropic-ai/claude-code@${{ matrix.cli }}" typescript@5
+          claude --version
+
+      - name: Validate the plugin manifest and hooks module
+        run: claude plugin validate --strict .claude-plugin/plugin.json
+
+      - name: Validate the marketplace manifest
+        run: claude plugin validate --strict .
+
+      - name: Lay this build's mod API declarations
+        # the engine writes .claude-plugin/types/ when it loads the mod; the
+        # prompt itself needs no answer (there are no credentials here)
+        run: |
+          timeout 120 claude --plugin-dir "$PWD" -p 'reply with the single word ok' --max-turns 1 || true
+          test -f .claude-plugin/types/claude-code/index.d.ts
+
+      - name: Type-check
+        run: tsc -p .
+
+      - name: Run the tests against the engine
+        run: claude plugin test .
+
+      - name: Sprite preview is up to date
+        run: bun scripts/render-sprites.ts | diff - scripts/sprites-preview.txt
