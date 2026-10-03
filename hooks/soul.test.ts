@@ -60,6 +60,8 @@ describe('the hatch prompt', () => {
     expect(p).toContain('SHINY variant -- extra special.')
     expect(p).toContain('Answer with JSON only')
     expect(hatchPrompt({ ...bones, shiny: false })).not.toContain('SHINY')
+    // the original left a blank line where the shiny line would be
+    expect(hatchPrompt({ ...bones, shiny: false })).toContain('\n\nMake it memorable')
     expect(HATCH_SYSTEM_PROMPT).toContain('Think pet name, not NPC name.')
   })
 
@@ -247,6 +249,10 @@ describe('name call detection', () => {
     expect(nameCall('Testo', 'Testo')).toBe('')
     expect(nameCall('  @Testo!', 'Testo')).toBe('')
     expect(nameCall('@Testo', 'Testo')).toBe('')
+    expect(nameCall('@Testo, hi there', 'Testo')).toBe('hi there')
+    // any stored name works, not only letters
+    expect(nameCall('R2D2, hi', 'R2D2')).toBe('hi')
+    expect(nameCall('Zé, hi', 'Zé')).toBe('hi')
   })
 
   test('never hijacks a prompt that merely starts with the name as a word', async () => {

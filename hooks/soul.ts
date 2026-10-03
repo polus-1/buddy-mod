@@ -98,9 +98,7 @@ export function hatchPrompt(bones: Bones): string {
     bones.shiny ? 'SHINY variant -- extra special.' : '',
     'Make it memorable and distinct.',
     'Answer with JSON only, no prose, no code fences: {"name":"<one word>","personality":"<one sentence>"}',
-  ]
-    .filter(line => line !== '')
-    .join('\n')
+  ].join('\n')
 }
 
 export type HatchReply = { name: string; personality: string }
@@ -173,7 +171,7 @@ export function systemPrompt(buddy: Buddy): string {
   ].join('\n')
 }
 
-/** The original's companion section (`fsq`), for the main model's system prompt. */
+/** The original's companion section (`fsq`) for the main model's system prompt, plus one closing safety sentence of this mod's. */
 export function companionSection(buddy: Buddy): string {
   const name = buddy.name
   return [
@@ -216,15 +214,16 @@ export function nameCallEvidence(rest: string, lastLines: readonly string[]): st
 
 /**
  * Whether a prompt addresses the buddy: it starts with `Name,` or `@Name`
- * (case-insensitive), or is the bare name alone. A name used as an ordinary
+ * (case-insensitive; any stored name of up to 14 non-space characters), or is
+ * the bare name alone. A name used as an ordinary
  * word ("Unit tests are failing") never matches. Returns the rest of the
  * prompt, or null when the prompt is for Claude.
  */
 export function nameCall(text: string, name: string): string | null {
-  if (!isValidName(name)) return null
+  if (!/^[^\s\u0000-\u001f\u007f]{1,14}$/.test(name)) return null
   const trimmed = text.trimStart()
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const lead = new RegExp(`^(?:@${escaped}(?:\\s+|$)|${escaped},\\s*)([\\s\\S]*)$`, 'i').exec(trimmed)
+  const lead = new RegExp(`^(?:@${escaped}(?:,?\\s+|,\\s*|$)|${escaped},\\s*)([\\s\\S]*)$`, 'i').exec(trimmed)
   if (lead !== null) return lead[1]!.trim()
   return new RegExp(`^@?${escaped}[!?.]*\\s*$`, 'i').test(trimmed) ? '' : null
 }

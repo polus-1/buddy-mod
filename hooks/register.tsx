@@ -20,7 +20,6 @@ import { EYES, HATS, RARITIES, SPECIES, hatchBones, isSpecies, parsePick, pickBo
 import type { Bones, Pick_, SeedHash } from './bones'
 import {
   HATCH_CRACK_FRAMES,
-  HATCH_FRAMES,
   HATCH_TICK_MS,
   HATCH_WOBBLE_FRAMES,
   HATCH_WOBBLE_TICKS,
@@ -58,6 +57,8 @@ const BUBBLE_MS = 10_000
 const DEFAULT_COOLDOWN_S = 30
 /** `$.fs.read` refuses a file over this; ~/.claude.json can grow past it. */
 const FS_READ_LIMIT = 4 * 1024 * 1024
+/** The egg wobbles at most this long (about 6 s) before cracking on whatever the naming call gave. */
+const HATCH_MAX_WOBBLE_TICKS = 36
 
 type Engine = EngineInterface
 
@@ -104,8 +105,6 @@ type Ctx = {
   seedProblem: string | null
   lastPrompt: string
   isHatching: boolean
-  /** A default soul kept for this session only (the naming call failed); not stored. */
-  sessionSoul: BuddySoul | null
 }
 
 function makeCtx(options: PluginOptions): Ctx {
@@ -127,7 +126,6 @@ function makeCtx(options: PluginOptions): Ctx {
     seedProblem: null,
     lastPrompt: '',
     isHatching: false,
-    sessionSoul: null,
   }
 }
 
@@ -205,6 +203,8 @@ function hatchTimeOf(record: Record<string, unknown>): number {
 type ClaudeJson = {
   /** False when the file exists but could not be read: nothing may be concluded from it. */
   isRead: boolean
+  /** True when only grepped fields are known (the file was too big to read whole). */
+  isPartial: boolean
   accountUuid: string | null
   companion: Record<string, unknown> | null
   companionMuted: boolean
@@ -239,6 +239,15 @@ function frameForTick(tick: number): FrameIndex {
 }
 
 // ---------------------------------------------------------------- state access
+
+/** The clock's time, or the wall clock's when the clock cannot be asked. */
+async function nowOf($: Engine): Promise<number> {
+  try {
+    return await $.clock.now()
+  } catch {
+    return Date.now()
+  }
+}
 
 async function currentBuddy($: Engine): Promise<Buddy | null> {
   return toBuddy(await read($, buddyAtom))
@@ -342,7 +351,7 @@ async function runReaction($: Engine, ctx: Ctx, trigger: Trigger, evidence: stri
     await addSpend($, out.usage)
     await say($, ctx, out.line)
   } finally {
-    ctx.gate.complete(await $.clock.now())
+    ctx.gate.complete(await nowOf($))
     armDrain($, ctx)
   }
 }
@@ -372,7 +381,8 @@ async function petReaction($: Engine, ctx: Ctx): Promise<void> {
 
 /** A tool result just came back: test failure, error or large diff -> reaction. */
 function watchToolResult($: Engine, ctx: Ctx, tool: string, input: Record<string, unknown>, text: string, isError: boolean): void {
-  const reason = detectReason(text)
+  // only a command's output is scanned for the patterns: a Read of a test file is not a failing test
+  const reason = tool === 'Bash' ? detectReason(text) : null
   if (reason === 'test-fail') return queueReaction($, ctx, 'test-fail', lastLines(text, 8))
   if (reason === 'large-diff') return queueReaction($, ctx, 'large-diff', `${tool}: ${lastLines(text, 8)}`)
   if (reason === 'error' || (isError && !NOT_A_CODE_ERROR.test(text))) {
@@ -402,7 +412,7 @@ async function grepField($: Engine, path: string, field: string): Promise<string
 }
 
 async function readClaudeJson($: Engine): Promise<ClaudeJson> {
-  const none: ClaudeJson = { isRead: true, accountUuid: null, companion: null, companionMuted: false }
+  const none: ClaudeJson = { isRead: true, isPartial: false, accountUuid: null, companion: null, companionMuted: false }
   let path: string | null = null
   try {
     path = configPath(await $.env.get('CLAUDE_CONFIG_DIR'), (await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE')))
@@ -410,7 +420,7 @@ async function readClaudeJson($: Engine): Promise<ClaudeJson> {
     const stat = await $.fs.stat(path)
     if (stat.size > FS_READ_LIMIT) {
       const accountUuid = (await grepField($, path, 'accountUuid')) ?? (await grepField($, path, 'userID'))
-      return { isRead: accountUuid !== null, accountUuid, companion: null, companionMuted: false }
+      return { isRead: accountUuid !== null, isPartial: true, accountUuid, companion: null, companionMuted: false }
     }
     const parsed: unknown = JSON.parse(await $.fs.read(path))
     if (typeof parsed !== 'object' || parsed === null) return none
@@ -419,9 +429,9 @@ async function readClaudeJson($: Engine): Promise<ClaudeJson> {
     const fromOauth = oauth !== null && typeof oauth.accountUuid === 'string' && oauth.accountUuid !== '' ? oauth.accountUuid : null
     const fromUserId = typeof root.userID === 'string' && root.userID !== '' ? root.userID : null
     const companion = typeof root.companion === 'object' && root.companion !== null ? (root.companion as Record<string, unknown>) : null
-    return { isRead: true, accountUuid: fromOauth ?? fromUserId, companion, companionMuted: root.companionMuted === true }
+    return { isRead: true, isPartial: false, accountUuid: fromOauth ?? fromUserId, companion, companionMuted: root.companionMuted === true }
   } catch {
-    return { isRead: false, accountUuid: null, companion: null, companionMuted: false }
+    return { isRead: false, isPartial: false, accountUuid: null, companion: null, companionMuted: false }
   }
 }
 
@@ -449,7 +459,8 @@ async function computeBones($: Engine, ctx: Ctx, claude: ClaudeJson): Promise<Bo
 
 /** Copies an old `companion` entry (and the mute flag) from ~/.claude.json into the store, once. */
 async function migrate($: Engine, claude: ClaudeJson): Promise<BuddySoul | null> {
-  if (!claude.isRead) return null
+  // a partial read (the file was too big) saw no companion: keep the migration for a session that can
+  if (!claude.isRead || claude.isPartial) return null
   if ((await $.store.get(STORE.migrated)) === true) return null
   await $.store.set(STORE.migrated, true)
   if (claude.companionMuted && (await $.store.get(STORE.muted)) === undefined) await $.store.set(STORE.muted, true)
@@ -494,8 +505,12 @@ async function hatch($: Engine, ctx: Ctx, forBones: Bones): Promise<{ buddy: Bud
   ctx.isHatching = true
   ctx.gate.take()
   try {
-    const naming = hatchSoul(req => $.model.complete(req), forBones, ctx.modelName)
-    for (let step = 0; step < HATCH_WOBBLE_TICKS; step++) {
+    let isNamed = false
+    const naming = hatchSoul(req => $.model.complete(req), forBones, ctx.modelName).finally(() => {
+      isNamed = true
+    })
+    // the egg wobbles for at least the original's twelve ticks, and on while the model is still writing
+    for (let step = 0; step < HATCH_WOBBLE_TICKS || (!isNamed && step < HATCH_MAX_WOBBLE_TICKS); step++) {
       await update($, hatchingAtom, () => step % HATCH_WOBBLE_FRAMES)
       await $.clock.sleep(HATCH_TICK_MS)
     }
@@ -508,20 +523,18 @@ async function hatch($: Engine, ctx: Ctx, forBones: Bones): Promise<{ buddy: Bud
     const soul: BuddySoul = { ...out.soul, hatchedAt: await $.clock.now() }
     let note: string | undefined
     if (out.isDefault && out.failure !== 'bad-shape') {
-      // an outage, not a bad answer: keep the default for this session only and try again next time
-      ctx.sessionSoul = soul
+      // an outage, not a bad answer: keep the default for this session only (not stored) and try again next session
       note = 'The naming call failed, so this is a stand-in name; /buddy will try again next session.'
     } else {
-      ctx.sessionSoul = null
       await storeSoul($, ctx, forBones, soul)
     }
     await publish($, soul, forBones)
     ctx.recentLines.length = 0
     return { buddy: { ...forBones, ...soul }, note }
   } finally {
-    await update($, hatchingAtom, () => null)
     ctx.isHatching = false
-    ctx.gate.complete(await $.clock.now())
+    ctx.gate.complete(await nowOf($))
+    spawn(update($, hatchingAtom, () => null))
   }
 }
 
@@ -620,7 +633,6 @@ async function runCommand($: Engine, ctx: Ctx, args: string): Promise<{ text: st
       if (!parsed.ok) return { text: parsed.error }
       await $.store.set(STORE.pickedBones, parsed.pick)
       ctx.bones = pickBones(parsed.pick)
-      ctx.sessionSoul = null
       await show($)
       const soul = await loadSoul($, ctx, ctx.bones)
       if (soul !== null) {
@@ -698,7 +710,7 @@ async function answerNameCall($: Engine, ctx: Ctx, buddy: Buddy, rest: string): 
     await say($, ctx, line)
     return line
   } finally {
-    ctx.gate.complete(await $.clock.now())
+    ctx.gate.complete(await nowOf($))
     armDrain($, ctx)
   }
 }
@@ -732,7 +744,7 @@ export const register: Register = (on, options) => {
       frame: frameForTick(tickCount),
       tick: tickCount,
       bubble: bubble?.text ?? null,
-      hearts: hearts !== null && hearts < HATCH_FRAMES.length ? hearts : null,
+      hearts: hearts !== null && hearts < HEART_TICKS ? hearts : null,
       columns: e.props.bodyColumns,
       hatching,
     }
@@ -780,7 +792,7 @@ export const register: Register = (on, options) => {
   on('prompt.compose', async ($, e, next) => {
     const result = await next(e)
     const buddy = await currentBuddy($)
-    if (buddy === null || !(await read($, visibleAtom))) return result
+    if (buddy === null || !(await read($, visibleAtom)) || (await read($, mutedAtom))) return result
     return { sections: [...result.sections, { id: `${PLUGIN}:companion`, text: companionSection(buddy), scope: 'session' }] }
   })
 }

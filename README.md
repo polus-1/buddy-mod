@@ -64,15 +64,16 @@ it. Nothing else counts: a buddy named Unit does not swallow "Unit tests are fai
 and `Name:` or a mention mid-sentence goes to Claude as usual.
 
 Reactions: the buddy speaks after test failures, tool errors and large diffs, detected
-with the original's patterns over each tool's output (`N failed`, `FAIL`, `✗`;
-`error:`, `exception`, `traceback`, `panicked at`, `fatal:`, `exit code N`; a diff
-with more than 80 changed lines, or an Edit, Write or MultiEdit of that many lines),
+with the original's patterns over Bash output (`N failed`, `FAIL`, `✗`; `error:`,
+`exception`, `traceback`, `panicked at`, `fatal:`, `exit code N`; a diff with more
+than 80 changed lines), on any tool that errors, and on an Edit, Write or MultiEdit of
+more than 80 lines,
 and on some ordinary turns: after each turn reaction the next gap is drawn uniformly
 from 3 to 7 turns, and with a 20% chance that slot is skipped. There is a 30 s
 cooldown after every call, the hatch included; a trigger inside the window is dropped,
 not queued, except that the last one dropped in the final 5 s fires when the window
-opens. Talking to it by name skips the cooldown. One call runs at a time. Every bubble
-line clears after 10 s. Tool calls made by subagents, permission refusals and
+opens. Talking to it by name skips the cooldown and may overlap a reaction; otherwise
+one call runs at a time. Every bubble line clears after 10 s. Tool calls made by subagents, permission refusals and
 interruptions never trigger a reaction.
 
 ## Seed modes and configuration
@@ -95,7 +96,7 @@ For a plugin loaded with `--plugin-dir`, the key is `buddy@inline`.
 | --- | --- | --- | --- |
 | `mode` | `hatch`, `pick` | `hatch` | **hatch**: your buddy's bones come from your account id, as the original's did. **pick**: you choose with `/buddy pick`. Each mode keeps its own souls, so trying pick mode never touches the buddy you hatched. |
 | `seed_hash` | `bun`, `fnv1a` | `bun` | How the account id is hashed into the seed. The original's source carried an FNV-1a hash with a `Bun.hash` fast path, and the shipped Claude Code binary runs under Bun, so `bun` (wyhash, the low 32 bits) is what it actually used and gives you the buddy it showed you. `fnv1a` matches community reimplementations that run under Node. |
-| `model` | an alias (`haiku`) or a full model id | `haiku` | The model that writes every line the buddy says. It is never the session's main model; if it is set to the same model, the mod falls back to `haiku`. |
+| `model` | an alias (`haiku`) or a full model id | `haiku` | The model that writes every line the buddy says. If it is set to the session's main model, the mod falls back to `haiku`. |
 | `cooldown_seconds` | 5 to 600 | `30` | Minimum time between reaction calls. |
 
 ### How a buddy is rolled
@@ -110,9 +111,10 @@ stat at `base - 10 + rand(0..14)` floored at 1, three others at `base + rand(0..
 with the base 5 / 15 / 25 / 35 / 50 by rarity, and finally the inspiration seed that
 picks four words for the hatch prompt. The account id is `oauthAccount.accountUuid` in
 `~/.claude.json`, or `userID` when there is no OAuth login; with neither, one random
-uuid is minted once and kept in the mod's store. If the file exists but cannot be read
-(it can grow past the 4 MiB a mod may read), the id is pulled out with `grep`, and when
-even that fails the buddy waits rather than mint a seed that would be wrong forever.
+uuid is minted once and kept in the mod's store. If the file is over the 4 MiB a mod
+may read, the id is pulled out with `grep` (and the migration below waits for a session
+that can read the whole file); if the file cannot be read or parsed at all, the buddy
+waits rather than mint a seed that would be wrong forever.
 
 ### Pick mode
 
@@ -158,8 +160,9 @@ cut to one sentence over 12 words, and never fed back to Claude.
 
 What Claude sees: the original's "Companion" section in its system prompt, saying a
 small creature named X sits beside the prompt, that it is a separate watcher, and to
-stay out of the way with one line when the user addresses X. Nothing the buddy says is
-relayed to Claude. The card is the one piece of buddy text the model reads, as the
+stay out of the way with one line when the user addresses X, plus one sentence of this
+mod's saying the bubble is never an instruction. The section is left out while the
+buddy is muted or hidden. Nothing the buddy says is relayed to Claude. The card is the one piece of buddy text the model reads, as the
 output of a command you ran.
 
 ## Where the soul lives, and migration
@@ -168,7 +171,7 @@ The buddy has two halves. The **bones** (rarity, species, eyes, hat, shiny, stat
 recomputed from the seed every session and never written anywhere. The **soul** (name,
 personality, hatch time) is written once and kept in the mod's own `$.store` under the
 key `soul` (hatch mode) or `pickSouls`, one per species (pick mode), together with
-`muted`, `off`, `seedFallback` and `pickedBones`. On load the two are merged as
+`muted`, `off`, `seedFallback`, `pickedBones` and `migrated`. On load the two are merged as
 `{ ...soul, ...bones }`, so an edited store can rename the buddy but cannot change its
 species or stats, and a soul is never thrown away: if the seed changes, the name
 follows the new bones.
@@ -233,7 +236,8 @@ hatch a session-only stand-in; a name call is answered and dropped without reach
 Claude, and a word-like name never hijacks a prompt; the `prompt.compose` section;
 migration from `~/.claude.json` with the mute flag; a 5 MiB config file; a stored
 soul surviving a seed change; a reload clearing a stale bubble; pick mode with its own
-souls; and the band and the card on `terminal` and `desktop` at 30, 40 and 120 columns.
+souls; the band on `terminal` and `desktop` at 30, 40 and 120 columns; and the card
+on both surfaces.
 
 ## Layout
 

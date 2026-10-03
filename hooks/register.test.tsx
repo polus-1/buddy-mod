@@ -92,6 +92,7 @@ function world(on: On, opts: WorldOptions = {}): World {
     return <Box />
   })
   on('tool.call', ($, e) => {
+    if (e.tool === 'Read' && e.file_path.includes('fail')) return { result: FAIL_TEXT, text: FAIL_TEXT }
     if (e.tool === 'Bash') {
       if (e.command.includes('boom')) return { isError: true as const, result: 'command not found: boom', text: 'command not found: boom' }
       if (e.command.includes('denied')) {
@@ -229,13 +230,20 @@ describe('hatching', () => {
     expect(w.calls[0]?.prompt).toContain(`Species: ${BONES.species}`)
   })
 
-  test('an unreadable ~/.claude.json never mints a wrong seed: /buddy explains and waits', { timeoutMs: 20_000 }, async ($, on) => {
+  test('an unreadable ~/.claude.json never mints a wrong seed nor marks the migration done: /buddy explains and waits', { timeoutMs: 20_000 }, async ($, on) => {
     const w = world(on, { fileSize: 5 * MIB })
     await start($)
     expect(w.store.seedFallback).toBeUndefined()
+    expect(w.store.migrated).toBeUndefined()
     const r = await run($, '')
     expect(r.text).toContain('could not be read')
     expect(w.calls).toHaveLength(0)
+  })
+
+  test('a grepped (partial) read keeps the migration for a later session', { timeoutMs: 20_000 }, async ($, on) => {
+    const w = world(on, { fileSize: 5 * MIB, grepOut: `"accountUuid": "${UUID}"` })
+    await start($)
+    expect(w.store.migrated).toBeUndefined()
   })
 
   test('three bad hatch replies fall back to the original default name, and that soul is stored', { timeoutMs: 20_000 }, async ($, on) => {
@@ -298,6 +306,14 @@ describe('commands', () => {
     expect(await ui.find({ type: 'Text', text: REACTION })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /♥/ })).toBeUndefined()
     await ui.unmount()
+    // /buddy off mid-hearts stops them, and no pet line follows
+    await w.clock.advance(31_000)
+    await run($, 'pet')
+    await w.clock.advance(1_000)
+    await run($, 'off')
+    const calls = w.calls.length
+    await w.clock.advance(5_000)
+    expect(w.calls.length).toBe(calls)
   })
 })
 
@@ -322,11 +338,12 @@ describe('reactions', () => {
     await $.tool.call({ tool: 'Bash', command: 'npm test # fail once more' })
     await w.clock.settle()
     expect(w.calls.length).toBe(base + 2)
-    // a passing command, a permission refusal and an unrelated tool do nothing
+    // a passing command, a permission refusal, an unrelated tool, and a Read of a test file do nothing
     await w.clock.advance(31_000)
     await $.tool.call({ tool: 'Bash', command: 'ls' })
     await $.tool.call({ tool: 'Bash', command: 'rm denied' })
     await $.tool.call({ tool: 'Read', file_path: '/x' })
+    await $.tool.call({ tool: 'Read', file_path: '/w/app.test.ts # fail' })
     await w.clock.settle()
     expect(w.calls.length).toBe(base + 2)
   })
@@ -498,6 +515,9 @@ describe('prompt.compose', () => {
     expect(r.sections[1]?.text).toStartWith('# Companion')
     expect(r.sections[1]?.text).toContain(`A small ${BONES.species} named Pebble`)
     await run($, 'off')
+    expect((await compose()).sections.map(s => s.id)).toEqual(['intro'])
+    await run($, '')
+    await run($, 'mute')
     expect((await compose()).sections.map(s => s.id)).toEqual(['intro'])
   })
 })
